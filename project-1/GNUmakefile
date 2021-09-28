@@ -302,9 +302,7 @@ prep-net_%: override INIT_CFLAGS+=-DTEST_NO_NS
 prep-%:
 	$(V)$(MAKE) "INIT_CFLAGS=${INIT_CFLAGS} -DTEST=`case $* in *_*) echo $*;; *) echo user_$*;; esac`" $(IMAGES)
 
-
 run-%-nox-gdb: prep-% pre-qemu
-	echo "here"
 	$(QEMU) -nographic $(QEMUOPTS) -S
 
 run-%-gdb: prep-% pre-qemu
