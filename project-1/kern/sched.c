@@ -58,7 +58,7 @@ sched_yield(void)
 
 	if (curenv && curenv->env_status == ENV_RUNNING) {
         /* Your code here */
-		if (envs[k].env_type == ENV_TYPE_GUEST)
+		if (curenv->env_type == ENV_TYPE_GUEST)
 			{
 				vmxon();
 			}
