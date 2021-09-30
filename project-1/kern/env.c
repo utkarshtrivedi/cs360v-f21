@@ -99,18 +99,8 @@ int envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// that used the same slot in the envs[] array).
 
 	// it should use the ENVX() macro found in inc/env.h, not straight reference
-
-	int i;
-	for (i = 0; i < NENV; i++)
-	{
-		if (envs[i].env_id == envid)
-		{
-			e = &envs[envid];
-		}
-	}
-
-	if (e == NULL || e->env_status == ENV_FREE || e->env_id != envid)
-	{
+	e = &envs[ENVX(envid)];
+	if (e->env_status == ENV_FREE || e->env_id != envid) {
 		*env_store = 0;
 		return -E_BAD_ENV;
 	}
@@ -120,14 +110,13 @@ int envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 	// If checkperm is set, the specified environment
 	// must be either the current environment
 	// or an immediate child of the current environment.
-	if (checkperm && e != curenv && e->env_parent_id != curenv->env_id)
-	{
+	if (checkperm && e != curenv && e->env_parent_id != curenv->env_id) {
 		*env_store = 0;
 		return -E_BAD_ENV;
 	}
 
 	// should be *env_store = e;, this might literaly work tho
-	env_store = &e;
+	*env_store = e;
 	return 0;
 }
 
@@ -142,8 +131,7 @@ void env_init(void)
 	// Set up envs array
 	// LAB 3: Your code here.
 	int i;
-	for (i = 0; i < NENV; i++)
-	{
+	for (i = 0; i < NENV; i++) {
 		envs[i].env_status = ENV_FREE;
 		envs[i].env_link = &envs[i + 1];
 	}
