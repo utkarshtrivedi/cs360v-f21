@@ -8,7 +8,6 @@
 
 void sched_halt(void);
 
-
 #line 13 "../kern/sched.c"
 #ifndef VMM_GUEST
 #include <vmm/vmx.h>
@@ -48,20 +47,26 @@ sched_yield(void)
 		// If this environment is runnable, run it.
 		if (envs[k].env_status == ENV_RUNNABLE) {
             /* Your code here */
+#ifndef VMM_GUEST
 			if (envs[k].env_type == ENV_TYPE_GUEST)
 			{
-				vmxon();
+				if(vmxon())  // Check success
+                    env_destroy(&envs[k]);  //Destroy the env as per @232
 			}
+#endif
 			env_run(&envs[k]);
 		}
 	}
 
 	if (curenv && curenv->env_status == ENV_RUNNING) {
         /* Your code here */
+#ifndef VMM_GUEST
 		if (curenv->env_type == ENV_TYPE_GUEST)
 			{
-				vmxon();
+				if(vmxon())  // Check success
+                    env_destroy(&envs[k]);  //Destroy the env as per @232
 			}
+#endif
 		env_run(curenv);
 	}
 
