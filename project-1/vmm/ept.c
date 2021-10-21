@@ -126,6 +126,10 @@ int ept_page_insert(epte_t* eptrt, struct PageInfo* pp, void* gpa, int perm) {
 int ept_map_hva2gpa(epte_t* eptrt, void* hva, void* gpa, int perm,
         int overwrite) {
     /* Your code here */
+    epte_t *epte_out;
+    if(ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
+        return -E_INVAL;
+    PADDR()
     return 0;
 }
 

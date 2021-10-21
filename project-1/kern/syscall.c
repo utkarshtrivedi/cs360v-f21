@@ -436,10 +436,11 @@ sys_vmx_incr_vmdisk_number() {
 // Return 0 on success, < 0 on error.  Errors are:
 //	-E_BAD_ENV if srcenvid and/or guest doesn't currently exist,
 //		or the caller doesn't have permission to change one of them.
-//	-E_INVAL if srcva >= UTOP or srcva is not page-aligned,
-//		or guest_pa >= guest physical size or guest_pa is not page-aligned.
+//*	-E_INVAL if srcva >= UTOP or srcva is not page-aligned,
+//*		or guest_pa >= guest physical size or
+//* guest_pa is not page-aligned.
 //	-E_INVAL is srcva is not mapped in srcenvid's address space.
-//	-E_INVAL if perm is inappropriate 
+//*	-E_INVAL if perm is inappropriate
 //	-E_INVAL if (perm & PTE_W), but srcva is read-only in srcenvid's
 //		address space.
 //	-E_NO_MEM if there's no memory to allocate any necessary page tables. 
@@ -454,6 +455,38 @@ sys_ept_map(envid_t srcenvid, void *srcva,
 	    envid_t guest, void* guest_pa, int perm)
 {
     /* Your code here */
+    int r;
+    struct Env *env_srcenvid, *env_guest;
+    // env_guest->env_pml4e  // Root of the EPT.
+//    env_guest->env_pml4e->
+    struct PageInfo *pp;
+    pte_t *ppte;
+
+    if ((r = envid2env(srcenvid, &env_srcenvid, 1)) < 0
+        || (r = envid2env(guest, &env_guest, 1)) < 0)
+        return r;
+
+    if (srcva >= (void*) UTOP)
+        return -E_INVAL;
+    if (srcva != ROUNDDOWN(srcva, PGSIZE)
+    || guest_pa != ROUNDDOWN(guest_pa, PGSIZE))
+        return -E_INVAL;
+
+    if ((~perm & (PTE_U|PTE_P)) || (perm & ~PTE_SYSCALL))
+        return -E_INVAL;
+
+    if ((pp = page_lookup(env_srcenvid->env_pml4e, srcva, &ppte)) == 0)
+        return -E_INVAL;
+    if ((perm & PTE_W) && !(*ppte & PTE_W))
+        return -E_INVAL;
+
+
+    if((int64_t)guest_pa >= env_guest->env_vmxinfo.phys_sz)
+        return -E_INVAL;
+
+    if((r = ept_map_hva2gpa(env_guest->env_pml4e, xxx, yyy, perm,0) < 0)
+        return r;
+
     return 0;
 }
 
