@@ -457,8 +457,6 @@ sys_ept_map(envid_t srcenvid, void *srcva,
     /* Your code here */
     int r;
     struct Env *env_srcenvid, *env_guest;
-    // env_guest->env_pml4e  // Root of the EPT.
-//    env_guest->env_pml4e->
     struct PageInfo *pp;
     pte_t *ppte;
 
@@ -484,9 +482,12 @@ sys_ept_map(envid_t srcenvid, void *srcva,
     if((int64_t)guest_pa >= env_guest->env_vmxinfo.phys_sz)
         return -E_INVAL;
 
-    if((r = ept_map_hva2gpa(env_guest->env_pml4e, xxx, yyy, perm,0) < 0)
+	void* addr = page2kva(pp);
+
+    if((r = ept_map_hva2gpa(env_guest->env_pml4e, addr, guest_pa, perm,0) < 0))
         return r;
 
+	pp->pp_ref +=1;
     return 0;
 }
 

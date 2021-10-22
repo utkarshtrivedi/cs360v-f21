@@ -16,7 +16,7 @@ static inline uintptr_t epte_addr(epte_t epte)
 // Return the host kernel virtual address of an ept entry
 static inline uintptr_t epte_page_vaddr(epte_t epte)
 {
-	return (uintptr_t) KADDR(epte_addr(epte));
+	return (uintptr_t)KADDR(epte_addr(epte));
 }
 
 // Return the flags from an ept entry
@@ -46,54 +46,78 @@ static inline int epte_present(epte_t epte)
 // Hint: Set the permissions of intermediate ept entries to __EPTE_FULL.
 //       The hardware ANDs the permissions at each level, so removing a permission
 //       bit at the last level entry is sufficient (and the bookkeeping is much simpler).
-static int ept_lookup_gpa(epte_t* eptrt, void *gpa,
-			  int create, epte_t **epte_out) {
-    /* Your code here */
-    return 0;
+static int ept_lookup_gpa(epte_t *eptrt, void *gpa,
+						  int create, epte_t **epte_out)
+{
+	
+	pte_t *pte = pml4e_walk((pml4e_t*)eptrt, gpa, create);
+	if(create ==0 && !pte) {
+		return -E_NO_ENT;
+	}
+	if(create !=0 && !pte) {
+		return -E_NO_MEM;
+	}
+	*epte_out = (epte_t*)pte;
+	return 0;
 }
 
-void ept_gpa2hva(epte_t* eptrt, void *gpa, void **hva) {
-    epte_t* pte;
-    int ret = ept_lookup_gpa(eptrt, gpa, 0, &pte);
-    if(ret < 0) {
-        *hva = NULL;
-    } else {
-        if(!epte_present(*pte)) {
-           *hva = NULL;
-        } else {
-           *hva = KADDR(epte_addr(*pte));
-        }
-    }
+void ept_gpa2hva(epte_t *eptrt, void *gpa, void **hva)
+{
+	epte_t *pte;
+	int ret = ept_lookup_gpa(eptrt, gpa, 0, &pte);
+	if (ret < 0)
+	{
+		*hva = NULL;
+	}
+	else
+	{
+		if (!epte_present(*pte))
+		{
+			*hva = NULL;
+		}
+		else
+		{
+			*hva = KADDR(epte_addr(*pte));
+		}
+	}
 }
 
-static void free_ept_level(epte_t* eptrt, int level) {
-    epte_t* dir = eptrt;
-    int i;
+static void free_ept_level(epte_t *eptrt, int level)
+{
+	epte_t *dir = eptrt;
+	int i;
 
-    for(i=0; i<NPTENTRIES; ++i) {
-        if(level != 0) {
-            if(epte_present(dir[i])) {
-                physaddr_t pa = epte_addr(dir[i]);
-                free_ept_level((epte_t*) KADDR(pa), level-1);
-                // free the table.
-                page_decref(pa2page(pa));
-            }
-        } else {
-            // Last level, free the guest physical page.
-            if(epte_present(dir[i])) {
-                physaddr_t pa = epte_addr(dir[i]);
-                page_decref(pa2page(pa));
-            }
-        }
-    }
-    return;
+	for (i = 0; i < NPTENTRIES; ++i)
+	{
+		if (level != 0)
+		{
+			if (epte_present(dir[i]))
+			{
+				physaddr_t pa = epte_addr(dir[i]);
+				free_ept_level((epte_t *)KADDR(pa), level - 1);
+				// free the table.
+				page_decref(pa2page(pa));
+			}
+		}
+		else
+		{
+			// Last level, free the guest physical page.
+			if (epte_present(dir[i]))
+			{
+				physaddr_t pa = epte_addr(dir[i]);
+				page_decref(pa2page(pa));
+			}
+		}
+	}
+	return;
 }
 
 // Free the EPT table entries and the EPT tables.
 // NOTE: Does not deallocate EPT PML4 page.
-void free_guest_mem(epte_t* eptrt) {
-    free_ept_level(eptrt, EPT_LEVELS - 1);
-    tlbflush();
+void free_guest_mem(epte_t *eptrt)
+{
+	free_ept_level(eptrt, EPT_LEVELS - 1);
+	tlbflush();
 }
 
 // Add Page pp to a guest's EPT at guest physical address gpa
@@ -105,10 +129,11 @@ void free_guest_mem(epte_t* eptrt) {
 //
 // Return 0 on success, <0 on failure.
 //
-int ept_page_insert(epte_t* eptrt, struct PageInfo* pp, void* gpa, int perm) {
+int ept_page_insert(epte_t *eptrt, struct PageInfo *pp, void *gpa, int perm)
+{
 
-    /* Your code here */
-    return 0;
+	/* Your code here */
+	return 0;
 }
 
 // Map host virtual address hva to guest physical address gpa,
@@ -123,38 +148,42 @@ int ept_page_insert(epte_t* eptrt, struct PageInfo* pp, void* gpa, int perm) {
 // Hint: use ept_lookup_gpa to create the intermediate
 //       ept levels, and return the final epte_t pointer.
 //       You should set the type to EPTE_TYPE_WB and set __EPTE_IPAT flag.
-int ept_map_hva2gpa(epte_t* eptrt, void* hva, void* gpa, int perm,
-        int overwrite) {
-    /* Your code here */
-    epte_t *epte_out;
-    if(ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
-        return -E_INVAL;
-    *epte_out = PADDR(hva);
-    return 0;
+int ept_map_hva2gpa(epte_t *eptrt, void *hva, void *gpa, int perm,
+					int overwrite)
+{
+	/* Your code here */
+	epte_t *epte_out;
+	if (ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
+		return -E_INVAL;
+	*epte_out = PADDR(hva);
+	return 0;
 }
 
-int ept_alloc_static(epte_t *eptrt, struct VmxGuestInfo *ginfo) {
-    physaddr_t i;
+int ept_alloc_static(epte_t *eptrt, struct VmxGuestInfo *ginfo)
+{
+	physaddr_t i;
 
-    for(i=0x0; i < 0xA0000; i+=PGSIZE) {
-        struct PageInfo *p = page_alloc(0);
-        p->pp_ref += 1;
-        int r = ept_map_hva2gpa(eptrt, page2kva(p), (void *)i, __EPTE_FULL, 0);
-    }
+	for (i = 0x0; i < 0xA0000; i += PGSIZE)
+	{
+		struct PageInfo *p = page_alloc(0);
+		p->pp_ref += 1;
+		int r = ept_map_hva2gpa(eptrt, page2kva(p), (void *)i, __EPTE_FULL, 0);
+	}
 
-    for(i=0x100000; i < ginfo->phys_sz; i+=PGSIZE) {
-        struct PageInfo *p = page_alloc(0);
-        p->pp_ref += 1;
-        int r = ept_map_hva2gpa(eptrt, page2kva(p), (void *)i, __EPTE_FULL, 0);
-    }
-    return 0;
+	for (i = 0x100000; i < ginfo->phys_sz; i += PGSIZE)
+	{
+		struct PageInfo *p = page_alloc(0);
+		p->pp_ref += 1;
+		int r = ept_map_hva2gpa(eptrt, page2kva(p), (void *)i, __EPTE_FULL, 0);
+	}
+	return 0;
 }
 
 #ifdef TEST_EPT_MAP
 #include <kern/env.h>
 #include <kern/syscall.h>
 int _export_sys_ept_map(envid_t srcenvid, void *srcva,
-	    envid_t guest, void* guest_pa, int perm);
+						envid_t guest, void *guest_pa, int perm);
 
 int test_ept_map(void)
 {
@@ -164,7 +193,7 @@ int test_ept_map(void)
 	int r;
 	int pp_ref;
 	int i;
-	epte_t* dir;
+	epte_t *dir;
 	/* Initialize source env */
 	if ((r = env_alloc(&srcenv, 0)) < 0)
 		panic("Failed to allocate env (%d)\n", r);
@@ -193,7 +222,7 @@ int test_ept_map(void)
 		cprintf("EPT map from above UTOP area failed as expected (%d).\n", r);
 	else
 		panic("sys_ept_map from above UTOP area success\n");
-	if ((r = _export_sys_ept_map(srcenv->env_id, UTEMP+1, dstenv->env_id, UTEMP, __EPTE_READ)) < 0)
+	if ((r = _export_sys_ept_map(srcenv->env_id, UTEMP + 1, dstenv->env_id, UTEMP, __EPTE_READ)) < 0)
 		cprintf("EPT map from unaligned srcva failed as expected (%d).\n", r);
 	else
 		panic("sys_ept_map from unaligned srcva success\n");
@@ -203,7 +232,7 @@ int test_ept_map(void)
 		cprintf("EPT map to out-of-boundary area failed as expected (%d).\n", r);
 	else
 		panic("sys_ept_map success on out-of-boundary area\n");
-	if ((r = _export_sys_ept_map(srcenv->env_id, UTEMP, dstenv->env_id, UTEMP-1, __EPTE_READ)) < 0)
+	if ((r = _export_sys_ept_map(srcenv->env_id, UTEMP, dstenv->env_id, UTEMP - 1, __EPTE_READ)) < 0)
 		cprintf("EPT map to unaligned guest_pa failed as expected (%d).\n", r);
 	else
 		panic("sys_ept_map success on unaligned guest_pa\n");
@@ -246,15 +275,14 @@ int test_ept_map(void)
 	if ((r = ept_lookup_gpa(NULL, UTEMP, 0, &epte)) < 0)
 		cprintf("EPT lookup with a null eptrt failed as expected\n");
 	else
-		panic ("ept_lookup_gpa success on null eptrt\n");
-
+		panic("ept_lookup_gpa success on null eptrt\n");
 
 	/* Check if the mapping is valid */
 	if ((r = ept_lookup_gpa(dstenv->env_pml4e, UTEMP, 0, &epte)) < 0)
 		panic("Failed on ept_lookup_gpa (%d)\n", r);
 	if (page2pa(pp) != (epte_addr(*epte)))
 		panic("EPT mapping address mismatching (%x vs %x).\n",
-				page2pa(pp), epte_addr(*epte));
+			  page2pa(pp), epte_addr(*epte));
 	else
 		cprintf("EPT mapping address looks good: %x vs %x.\n",
 				page2pa(pp), epte_addr(*epte));
@@ -267,31 +295,33 @@ int test_ept_map(void)
 
 	/* Check if the map_hva2gpa can map a page */
 	if ((r = ept_map_hva2gpa(dstenv->env_pml4e, page2kva(pp), UTEMP, __EPTE_READ, 1)) < 0)
-		panic ("Failed on mapping a page from kva to gpa\n");
+		panic("Failed on mapping a page from kva to gpa\n");
 	else
 		cprintf("map_hva2gpa success on mapping a page\n");
 
 	/* Check if the map_hva2gpa set permission correctly */
 	if ((r = ept_lookup_gpa(dstenv->env_pml4e, UTEMP, 0, &epte)) < 0)
 		panic("Failed on ept_lookup_gpa (%d)\n", r);
-	if (((uint64_t)*epte & (~EPTE_ADDR)) == (__EPTE_READ | __EPTE_TYPE( EPTE_TYPE_WB ) | __EPTE_IPAT))
+	if (((uint64_t)*epte & (~EPTE_ADDR)) == (__EPTE_READ | __EPTE_TYPE(EPTE_TYPE_WB) | __EPTE_IPAT))
 		cprintf("map_hva2gpa success on perm check\n");
 	else
 		panic("map_hva2gpa didn't set permission correctly\n");
 	/* Go through the extended page table to check if the immediate mappings are correct */
 	dir = dstenv->env_pml4e;
-	for ( i = EPT_LEVELS - 1; i > 0; --i ) {
-        	int idx = ADDR_TO_IDX(UTEMP, i);
-        	if (!epte_present(dir[idx])) {
-        		panic("Failed to find page table item at the immediate level %d.", i);
-        	}
-		if (!(dir[idx] & __EPTE_FULL)) {
+	for (i = EPT_LEVELS - 1; i > 0; --i)
+	{
+		int idx = ADDR_TO_IDX(UTEMP, i);
+		if (!epte_present(dir[idx]))
+		{
+			panic("Failed to find page table item at the immediate level %d.", i);
+		}
+		if (!(dir[idx] & __EPTE_FULL))
+		{
 			panic("Permission check failed at immediate level %d.", i);
 		}
-		dir = (epte_t *) epte_page_vaddr(dir[idx]);
-        }
+		dir = (epte_t *)epte_page_vaddr(dir[idx]);
+	}
 	cprintf("EPT immediate mapping check passed\n");
-
 
 	/* stop running after test, as this is just a test run. */
 	panic("Cheers! sys_ept_map seems to work correctly.\n");
@@ -299,4 +329,3 @@ int test_ept_map(void)
 	return 0;
 }
 #endif
-
