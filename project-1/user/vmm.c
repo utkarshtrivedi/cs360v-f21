@@ -20,6 +20,19 @@ static int
 map_in_guest( envid_t guest, uintptr_t gpa, size_t memsz, 
 	      int fd, size_t filesz, off_t fileoffset ) {
 	/* Your code here */
+    int ret = 0;
+
+    //Allocate memory of mem sz
+    //fd to load from the file
+    //how much to load from the file
+    //offset in the file. fd+fileoffset  load into gpa
+
+    for(int i=0; i<filesz; i += PGSIZE){
+        // Seek to file:
+        if((ret = seek(fd, )) != 0)
+            return ret;
+    }
+
 	return -E_NO_SYS;
 } 
 
@@ -32,7 +45,42 @@ map_in_guest( envid_t guest, uintptr_t gpa, size_t memsz,
 static int
 copy_guest_kern_gpa( envid_t guest, char* fname ) {
 	/* Your code here */
-	return -E_NO_SYS;
+    int fd;
+    int ret;
+    if ((fd = open( fname, O_RDONLY)) < 0 ) {
+        cprintf("open %s for read: %e\n", fname, fd );
+        exit();
+    }
+    // sizeof(bootloader) < 512.
+    if ((ret = map_in_guest(guest, JOS_ENTRY, 512, fd, 512, 0)) < 0) {
+        cprintf("Error mapping bootloader into the guest - %d\n.", ret);
+        exit();
+    }
+
+
+    struct Elf *elf = (struct Elf *)binary;
+    struct Proghdr *ph, *eph;
+
+    if (elf && elf->e_magic == ELF_MAGIC)
+    {
+        ph = (struct Proghdr *)((uint8_t *)elf + elf->e_phoff);
+        eph = ph + elf->e_phnum;
+        for (; ph < eph; ph++)
+        {
+            if (ph->p_type == ELF_PROG_LOAD)
+            {
+                region_alloc(e, (void *)ph->p_va, ph->p_memsz);
+                memcpy((void *)ph->p_va, (void *)((uint8_t *)elf + ph->p_offset), ph->p_filesz);
+                if (ph->p_filesz < ph->p_memsz)
+                {
+                    memset((void *)(ph->p_va + ph->p_filesz), 0, ph->p_memsz - ph->p_filesz);
+                }
+            }
+        }
+        region_alloc(e, (void *)(USTACKTOP - PGSIZE), PGSIZE);
+    }
+    else
+        return -E_NO_SYS;
 }
 
 void

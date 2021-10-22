@@ -129,7 +129,7 @@ int ept_map_hva2gpa(epte_t* eptrt, void* hva, void* gpa, int perm,
     epte_t *epte_out;
     if(ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
         return -E_INVAL;
-    PADDR()
+    *epte_out = PADDR(hva);
     return 0;
 }
 
