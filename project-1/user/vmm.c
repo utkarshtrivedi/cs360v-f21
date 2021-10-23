@@ -25,34 +25,46 @@ map_in_guest(envid_t guest, uintptr_t gpa, size_t memsz,
 	int ret = 0;
 	int perm = PTE_P | PTE_U | PTE_W;
 	uintptr_t gpa_counter = gpa;
+    if(PGOFF(gpa_counter))  // Re-align the gpa to PAGE
+        ROUNDDOWN(gpa_counter, PGSIZE);
+
 	int i;
-	for (i = 0; i < ROUNDDOWN(memsz, PGSIZE); i += PGSIZE)
+    /**
+     * memsz is > filesz
+     * Round up next page size so the whole block is page aligned.
+     */
+	for (i = 0; i < ROUNDUP(memsz, PGSIZE); i += PGSIZE)
 	{
-		if (sys_page_alloc(srcid, UTEMP, perm) < 0)
-		{
-			return -1;
-		}
+        // Allocate the memory space
+		if ((ret = sys_page_alloc(srcid, UTEMP, perm)) < 0)
+			return ret;
 
-		readn(fd, UTEMP, PGSIZE);
+        // Still in the file:
+        if(i < filesz) {
+            // Seek in the file:
+            if( (ret=seek(fd, fileoffset+i)) < 0)
+                return ret;
+            // How much to load from the file:
+            size_t amount_to_load = filesz - i;
+            if(PGSIZE < amount_to_load)  // If we are at the end of the file but less than page size to laod...
+                amount_to_load = PGSIZE;
+            // Now load:
+            if( (ret=readn(fd, UTEMP, amount_to_load)) < 0)
+                return ret;
+        }
+        // Do Mapping:
+        if ((ret = sys_ept_map(srcid, UTEMP,
+                               guest, (void *)gpa_counter,
+                               perm)) < 0)
+            return ret;
 
-		sys_ept_map(srcid, UTEMP, guest, (void *)gpa_counter, perm);
-
-		gpa_counter += PGSIZE;
+		gpa_counter += i;  // inc
+        // Clear mem, release
+        if ((ret = sys_page_unmap(srcid, UTEMP)) < 0)
+            return ret;
 	}
 
-	if ((memsz = memsz - i*PGSIZE) > 0)
-	{
-		if (sys_page_alloc(srcid, UTEMP, perm) < 0)
-		{
-			return -1;
-		}
-		readn(fd, UTEMP, memsz);
-		sys_ept_map(srcid, UTEMP, guest, (void *)gpa_counter, perm);
-	}
-
-	sys_page_unmap(srcid, UTEMP);
-
-	return 0;
+	return ret;
 }
 
 // Read the ELF headers of kernel file specified by fname,
@@ -66,12 +78,9 @@ copy_guest_kern_gpa(envid_t guest, char *fname)
 {
 	/* Your code here */
 	int fd;
-	int ret;
-	if ((fd = open(fname, O_RDONLY)) < 0)
-	{
-		cprintf("open %s for read: %e\n", fname, fd);
-		exit();
-	}
+ 	if ((fd = open(fname, O_RDONLY)) < 0)
+        return -E_NOT_FOUND;  // Return File not found error or can't open
+
 	struct Elf *elf;
 	unsigned char elf_buf[512];
 
@@ -81,12 +90,12 @@ copy_guest_kern_gpa(envid_t guest, char *fname)
 	{
 		close(fd);
 		cprintf("elf magic %08x want %08x\n", elf->e_magic, ELF_MAGIC);
-		return -E_NOT_EXEC;
+		return -E_NOT_EXEC;  // File not a valid executable
 	}
 
 	struct Proghdr *ph, *eph;
 
-	if (elf && elf->e_magic == ELF_MAGIC)
+	if (elf && elf->e_magic == ELF_MAGIC)  // Extra check
 	{
 		ph = (struct Proghdr *)((uint8_t *)elf + elf->e_phoff);
 		eph = ph + elf->e_phnum;
@@ -97,7 +106,7 @@ copy_guest_kern_gpa(envid_t guest, char *fname)
 				if (map_in_guest(guest, ph->p_pa, ph->p_memsz, fd, ph->p_filesz, ph->p_offset) < 0)
 				{
 					close(fd);
-					return -1;
+					return -E_BAD_ENV;  // Environment Error, cannot load Kernel
 				}
 			}
 		}
