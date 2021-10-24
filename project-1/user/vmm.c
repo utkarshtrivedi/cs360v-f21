@@ -54,11 +54,10 @@ map_in_guest(envid_t guest, uintptr_t gpa, size_t memsz,
         }
         // Do Mapping:
         if ((ret = sys_ept_map(srcid, UTEMP,
-                               guest, (void *)gpa_counter,
+                               guest, (void *)gpa_counter+i,
                                perm)) < 0)
             return ret;
 
-		gpa_counter += i;  // inc
         // Clear mem, release
         if ((ret = sys_page_unmap(srcid, UTEMP)) < 0)
             return ret;

@@ -49,7 +49,8 @@ static inline int epte_present(epte_t epte)
 static int ept_lookup_gpa(epte_t *eptrt, void *gpa,
 						  int create, epte_t **epte_out)
 {
-	
+	if(!eptrt)
+        return -E_INVAL;
 	pte_t *pte = pml4e_walk((pml4e_t*)eptrt, gpa, create);
 	if(create ==0 && !pte) {
 		return -E_NO_ENT;
@@ -155,7 +156,10 @@ int ept_map_hva2gpa(epte_t *eptrt, void *hva, void *gpa, int perm,
 	epte_t *epte_out;
 	if (ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
 		return -E_INVAL;
-	*epte_out = PADDR(hva);
+    if(*epte_out && overwrite==0)
+        return -E_INVAL;
+
+	*epte_out = PADDR(hva)|perm;
 	return 0;
 }
 
