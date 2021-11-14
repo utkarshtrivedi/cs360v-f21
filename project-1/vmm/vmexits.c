@@ -254,7 +254,7 @@ handle_vmcall(struct Trapframe *tf, struct VmxGuestInfo *gInfo, uint64_t *eptrt)
         /* Hint: */
 		// Craft a multiboot (e820) memory map for the guest.
 		//
-		// Create three  memory mapping segments: 640k of low mem, the I/O hole (unusable), and 
+		// Create three  memory mapping segments: 640k of low mem, the I/O hole (unusable), and
 		//   high memory (phys_size - 1024k).
 		//
 		// Once the map is ready, find the kernel virtual address of the guest page (if present),
@@ -262,7 +262,74 @@ handle_vmcall(struct Trapframe *tf, struct VmxGuestInfo *gInfo, uint64_t *eptrt)
 		// Copy the mbinfo and memory_map_t (segment descriptions) into the guest page, and return
 		//   a pointer to this region in rbx (as a guest physical address).
 		/* Your code here */
-		break;
+        cprintf("Now back to the host, VM halt in the background, run vmmanager to resume the VM.\n");
+
+        // We create our memory regions here:
+        // Start with Low Map:
+        memory_map_t lo_map;
+        lo_map.type = MB_TYPE_USABLE;  // Early RAM
+        lo_map.size = 20;  // Size of map struct
+        // Starting address is 0x00000000
+        lo_map.base_addr_low = 0;  // Low bits zero
+        lo_map.base_addr_high = 0;  // Top bits zero
+        // End / Length:
+        lo_map.length_low = IOPHYSMEM;  // Low bits
+        lo_map.length_high = 0;  // Top bits zero
+
+        // Mid Map:
+        memory_map_t mid_map;
+        mid_map.type = MB_TYPE_RESERVED;  // Donut gap IO
+        mid_map.size = 20;  // Size of map struct
+        // Starting Address is the end of low memory or at 0x0A0000 / IOPHYSMEM
+        mid_map.base_addr_low = IOPHYSMEM;  // Hint from lo_map
+        mid_map.base_addr_high = 0;  // zeroes in the high bits
+        // length / end address:
+        mid_map.length_low = EXTPHYSMEM-IOPHYSMEM;  // Memory hole is at Extended Memory starting point minus the low memory
+        mid_map.length_high = 0;
+
+        // High Map:
+        memory_map_t hi_map;
+        hi_map.type = MB_TYPE_USABLE;  // Extended mem
+        hi_map.size = 20;  // These are all the same size struct
+        // Starting address:
+        hi_map.base_addr_low = EXTPHYSMEM;  // Defining the extended mem starting point
+        hi_map.base_addr_high = 0;  //  High bits still zero.
+        // Length / end address:
+        int64_t guest_size = gInfo->phys_sz;
+        int64_t top_size = guest_size - EXTPHYSMEM;  // total guest size minus the bottom.
+        // Convert the data type to signed and then do our bitshifting. From:
+        // https://stackoverflow.com/questions/29160220/which-way-is-better-to-get-lower-32-bits-of-a-64-bits-integer/29160499
+        hi_map.length_low = (uint32_t)(top_size & 0xFFFFFFFF);  // I don't think this & is necessary
+        hi_map.length_high = (uint32_t)( top_size>>32 & 0xFFFFFFFF );
+
+        // Once the map is ready, find the kernel virtual address of the guest page (if present),
+        //   or allocate one and map it at the multiboot_map_addr (0x6000).
+        // Reference handle_eptviolation method above  for the below approach:
+        // First we attempt alloc page
+        struct PageInfo *p = NULL;
+        if (!(p = page_alloc(ALLOC_ZERO)))
+            // Failed to allocate the page
+            break;
+        p->pp_ref++;  // Increment ref counter as per page_alloc documentation.
+        void* host_virtual_addr = page2kva(p);
+        // Now do our mapping
+        ept_map_hva2gpa(eptrt, host_virtual_addr, (void *) 0x6000, __EPTE_FULL, 1);
+
+        // Now set these in mbinfo:
+        mbinfo.mmap_addr = 0x6000 + sizeof(mbinfo);  // Pointer starts at 0x6000 plus this data structure (header)
+        mbinfo.mmap_length = sizeof(lo_map) + sizeof(mid_map) + sizeof(hi_map);
+        mbinfo.flags = MB_FLAG_MMAP;
+
+        // Copy the mbinfo and memory_map_t (segment descriptions) into the guest page
+        memcpy(host_virtual_addr, &mbinfo, sizeof(mbinfo));  // Copy the header into place
+        memcpy(host_virtual_addr + sizeof(mbinfo), &lo_map, sizeof(lo_map));
+        memcpy(host_virtual_addr + sizeof(mbinfo) + sizeof(lo_map), &mid_map, sizeof(mid_map));
+        memcpy(host_virtual_addr + sizeof(mbinfo) + sizeof(lo_map) + sizeof(mid_map), &hi_map, sizeof(hi_map));
+
+        // ... and return a pointer to this region in rbx (as a guest physical address):
+        tf->tf_regs.reg_rbx = 0x6000;
+        handled = true;
+        break;
 	case VMX_VMCALL_IPCSEND:
         /* Hint: */
 		// Issue the sys_ipc_send call to the host.
