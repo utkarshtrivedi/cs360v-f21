@@ -74,49 +74,62 @@ ipc_send(envid_t to_env, uint32_t val, void *pg, int perm)
 // Should behave similarly to ipc_recv, except replacing the system call with a vmcall.
 int32_t
 ipc_host_recv(void *pg) {
-    /* Your code here */
-    panic("ipc_host_recv not implemented\n");
-    // r stores the return of the vmcall
-    int r = 0, val = 0;
-    if (!pg)
-    	pg = (void*) UTOP;
+  /* Your code here */
+  // r stores the return of the vmcall
+  int r = 0, val = 0;
+  if (!pg)
+  pg = (void*) UTOP;
 
-    sys_page_alloc(0, pg, PTE_U|PTE_P|PTE_W);
-    physaddr_t pa = PTE_ADDR(uvpt[PGNUM(pg)]);
+  sys_page_alloc(0, pg, PTE_U|PTE_P|PTE_W);
+  physaddr_t pa = PTE_ADDR(uvpt[PGNUM(pg)]);
 
-    // ISSUE VMCALL
+  // ~ LAB 4 ~
+  asm("vmcall"
+     : "=a"(r), "=S"(val)
+     : "0"(VMX_VMCALL_IPCRECV), "b"(pa)
+  );
 
-    if (r < 0) {
-		return r;
-	}
+  if (r < 0) {
+    return r;
+  }
+  return val;
 
 }
 
 // Access to host IPC interface through VMCALL.
 // Should behave similarly to ipc_send, except replacing the system call with a vmcall.
 // This function should also convert pg from guest virtual to guest physical for the IPC call
+
 void
 ipc_host_send(envid_t to_env, uint32_t val, void *pg, int perm)
 {
-    /* Your code here */
-    // r stores the return of the vmcall
-    panic("ipc_host_send not implemented\n");
-    int r = 0;
-    if (!pg)
-    	pg = (void*) UTOP;
+  /* Your code here */
+  // r stores the return of the vmcall
+  int r = 0;
+  if (!pg)
+  pg = (void*) UTOP;
 
-    physaddr_t pa = PTE_ADDR(uvpt[PGNUM(pg)]);
+  physaddr_t pa = PTE_ADDR(uvpt[PGNUM(pg)]);
 
-    // ISSUE FIRST VMCALL
-    while(r == -E_IPC_NOT_RECV) {
-		sys_yield();
-		// TRY VMCALL REPEATEDLY UNTIL YOU GET A RESPONSE
-	}
-	if (r < 0)
-		panic("error in ipc_send: %e", r);
+  // ~ LAB 4 ~
+
+  asm("vmcall" // issue vmcall
+    : "=a"(r) // put output into rax
+    : "0"(VMX_VMCALL_IPCSEND), "b"(to_env), "c"(val), "d"(pa), "S"(perm)
+   );
+  // retry until the send succeeds
+  while (r == -E_IPC_NOT_RECV) {
+    sys_yield();
+    asm("vmcall"
+       : "=a"(r) 
+       : "0"(VMX_VMCALL_IPCSEND), "b"(to_env), "c"(val), "d"(pa), "S"(perm)
+   	);
+  }
+
+  if (r < 0)
+    panic("error in ipc_send: %e", r);
 
 }
-
 #endif // VMM_GUEST
 
 // Find the first environment of the given type.  We'll use this to
