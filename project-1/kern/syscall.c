@@ -325,7 +325,25 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
      *  is using normal page, use page_insert. Use ept_page_insert() wherever possible. */
     /* Your code here */
 
-    if (srcva < (void*) UTOP && e->env_ipc_dstva < (void*) UTOP) {
+    if(curenv->env_type == ENV_TYPE_GUEST && e->env_ipc_dstva < (void*) UTOP) {
+		assert(srcva >= (void*)KERNBASE);
+		pp = pa2page(PADDR(srcva));
+		r = page_insert(e->env_pml4e, pp, e->env_ipc_dstva, perm);
+		if (r < 0) {
+			return r;
+		}
+		e->env_ipc_perm = perm;
+	} else if(e->env_type == ENV_TYPE_GUEST && srcva < (void*) UTOP) {
+		pp = page_lookup(curenv->env_pml4e, srcva, &ppte);
+		if(pp == 0 || (perm & PTE_W) && !(*ppte &PTE_W)) {
+			return -E_INVAL;
+		}
+
+#ifndef VMM_GUEST
+		r = ept_page_insert(e->env_pml4e, pp, e->env_ipc_dstva, __EPTE_FULL);
+#endif
+    
+	} else if (srcva < (void*) UTOP && e->env_ipc_dstva < (void*) UTOP) {
         if ((~perm & (PTE_U|PTE_P)) || (perm & ~PTE_SYSCALL)) {
             cprintf("[%08x] bad perm %x in sys_ipc_try_send\n", curenv->env_id, perm);
             return -E_INVAL;
@@ -357,6 +375,9 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
     e->env_ipc_from = curenv->env_id;
     e->env_ipc_value = value;
     e->env_tf.tf_regs.reg_rax = 0;
+    if(e->env_type == ENV_TYPE_GUEST) {
+		e->env_tf.tf_regs.reg_rsi = value;
+	}
     e->env_status = ENV_RUNNABLE;
     return 0;
 }

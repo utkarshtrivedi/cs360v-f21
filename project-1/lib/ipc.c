@@ -123,7 +123,7 @@ ipc_host_send(envid_t to_env, uint32_t val, void *pg, int perm)
     asm("vmcall"
        : "=a"(r) 
        : "0"(VMX_VMCALL_IPCSEND), "b"(to_env), "c"(val), "d"(pa), "S"(perm)
-   	);
+      );
   }
 
   if (r < 0)

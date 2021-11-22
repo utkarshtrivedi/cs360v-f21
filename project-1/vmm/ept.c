@@ -166,6 +166,18 @@ void free_guest_mem(epte_t* eptrt) {
 //
 int ept_page_insert(epte_t* eptrt, struct PageInfo* pp, void* gpa, int perm) {
     /* Your code here */
+		epte_t *epte;
+		assert(gpa != NULL);
+		int r = ept_lookup_gpa(eptrt, gpa, 1, &epte);
+		if (epte == NULL) return -E_NO_MEM;
+		if (r < 0) return r;
+		if (*epte & PTE_P) {
+			page_remove((pml4e_t*)eptrt, gpa);
+		}
+
+		pp->pp_ref++;
+
+		*epte = page2pa(pp) | PTE_P | perm;
     return 0;
 }
 
