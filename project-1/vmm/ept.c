@@ -46,20 +46,69 @@ static inline int epte_present(epte_t epte)
 // Hint: Set the permissions of intermediate ept entries to __EPTE_FULL.
 //       The hardware ANDs the permissions at each level, so removing a permission
 //       bit at the last level entry is sufficient (and the bookkeeping is much simpler).
-static int ept_lookup_gpa(epte_t *eptrt, void *gpa,
-						  int create, epte_t **epte_out)
-{
-	if(!eptrt)
+static int ept_lookup_gpa(epte_t* eptrt, void *gpa,
+              int create, epte_t **epte_out) {
+    if (!eptrt) {
         return -E_INVAL;
-	pte_t *pte = pml4e_walk((pml4e_t*)eptrt, gpa, create);
-	if(create ==0 && !pte) {
-		return -E_NO_ENT;
-	}
-	if(create !=0 && !pte) {
-		return -E_NO_MEM;
-	}
-	*epte_out = (epte_t*)pte;
-	return 0;
+    }
+
+    int i;
+    epte_t* dir = eptrt;
+
+    for (i = EPT_LEVELS - 1; i > 0; i--) {
+        // get the index into the current ept level based on gpa
+        int idx = ADDR_TO_IDX(gpa, i);
+
+        // if dir[idx] isn't present in the page table, need to
+        // create a new page table page for it (or return an error
+        // if create is false)
+        if (!epte_present(dir[idx])) {
+            struct PageInfo* page;
+
+            if (!create) {
+                return -E_NO_ENT;
+            }
+
+            page = page_alloc(ALLOC_ZERO);
+            if (!page) {
+                return -E_NO_MEM;
+            }
+            page->pp_ref++;
+
+            // epte_addr returns the physical address of an ept entry
+            // and page2pa returns the physical address of a page. we need to do
+            // both to obtain the address for the new entry, then set the permissions
+            // on it
+            dir[idx] = epte_addr(page2pa(page)) | __EPTE_FULL;
+        }
+        // update dir to the virtual address of the next epte
+        // we need to use a virtual address so we can actually
+        // dereference it
+        dir = (epte_t*) epte_page_vaddr(dir[idx]);
+    }
+
+    // set epte_out to the address of the EPT entry for the actual page
+    if (epte_out) {
+        *epte_out = &dir[ADDR_TO_IDX(gpa, 0)];
+    }
+
+    return 0;
+}
+
+int alloc_intermediate_ept_page(epte_t* parent, uint64_t index, int create) {
+    struct PageInfo* page = NULL;
+    epte_t new_epte;
+    if (!create) {
+        return -E_NO_ENT;
+    }
+    page = page_alloc(ALLOC_ZERO);
+    if (!page) {
+        return -E_NO_MEM;
+    }
+    page->pp_ref++;
+    new_epte = epte_page_vaddr(page2pa(page) | __EPTE_FULL);
+    parent[index] = new_epte;
+    return 0;
 }
 
 void ept_gpa2hva(epte_t *eptrt, void *gpa, void **hva)
@@ -149,18 +198,32 @@ int ept_page_insert(epte_t *eptrt, struct PageInfo *pp, void *gpa, int perm)
 // Hint: use ept_lookup_gpa to create the intermediate
 //       ept levels, and return the final epte_t pointer.
 //       You should set the type to EPTE_TYPE_WB and set __EPTE_IPAT flag.
-int ept_map_hva2gpa(epte_t *eptrt, void *hva, void *gpa, int perm,
-					int overwrite)
-{
-	/* Your code here */
-	epte_t *epte_out;
-	if (ept_lookup_gpa(eptrt, gpa, 1, &epte_out) != 0)
-		return -E_INVAL;
-    if(*epte_out && overwrite==0)
-        return -E_INVAL;
+int ept_map_hva2gpa(epte_t* eptrt, void* hva, void* gpa, int perm,
+        int overwrite) {
+    epte_t* pte;
+    // look up the page table entry for gpa and store it in pte
+    int ret = ept_lookup_gpa(eptrt, gpa, 1, &pte);
+    if (ret < 0) {
+        return ret;
+    }
 
-	*epte_out = PADDR(hva)|perm;
-	return 0;
+    // if there's already an entry for gpa and overwrite is false, return error
+    if (epte_present(*pte) && !overwrite) {
+        return -E_INVAL;
+    }
+
+    // first have to convert hva to a physical address, since we actually want to map
+    // to physical addresses. take the bitwise OR with the desired permissions and the
+    // EPTE type we want to use.
+    // Then, use epte_addr to obtain the physical address for that
+    // Finally, bitwise-OR with __EPTE_IPAT
+    // IPAT means "ignore PAT memory" - PAT == page attribute table and is a
+    // structure related to caching. not relevant to us, but still needs to be set.
+    *pte = epte_addr( PADDR( hva ) ) | perm | __EPTE_TYPE( EPTE_TYPE_WB )
+        | __EPTE_IPAT;
+    // invalidate tlb entry for gpa, since we've changed the mapping
+    tlb_invalidate(eptrt, gpa);
+    return 0;
 }
 
 int ept_alloc_static(epte_t *eptrt, struct VmxGuestInfo *ginfo)

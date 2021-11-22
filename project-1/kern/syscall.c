@@ -452,42 +452,50 @@ sys_vmx_incr_vmdisk_number() {
 // 
 static int
 sys_ept_map(envid_t srcenvid, void *srcva,
-	    envid_t guest, void* guest_pa, int perm)
+        envid_t guest, void* guest_pa, int perm)
 {
-    /* Your code here */
-    int r;
-    struct Env *env_srcenvid, *env_guest;
+    int ret;
+    struct Env *src_env, *guest_env;
     struct PageInfo *pp;
     pte_t *ppte;
 
-    if ((r = envid2env(srcenvid, &env_srcenvid, 1)) < 0
-        || (r = envid2env(guest, &env_guest, 1)) < 0)
-        return r;
-
-    if (srcva >= (void*) UTOP)
+    // check that the source virtual address is good
+    if (srcva >= (void*) UTOP || srcva != ROUNDDOWN(srcva, PGSIZE)) {
         return -E_INVAL;
-    if (srcva != ROUNDDOWN(srcva, PGSIZE)
-    || guest_pa != ROUNDDOWN(guest_pa, PGSIZE))
+    }
+
+    // obtain src and guest env, returning error if either does not exist
+    if ((ret = envid2env(srcenvid, &src_env, 1)) < 0 ||
+        (ret = envid2env(guest, &guest_env, 1)) < 0) {
+            return ret;
+    }
+    // check that the guest physical address is good
+    if (guest_pa >= (void*) guest_env->env_vmxinfo.phys_sz || guest_pa != ROUNDDOWN(guest_pa, PGSIZE)) {
         return -E_INVAL;
+    }
 
-    if ((~perm & (PTE_U|PTE_P)) || (perm & ~PTE_SYSCALL))
+    // check that srcva is mapped in src_env's address space
+    if ((pp = page_lookup(src_env->env_pml4e, srcva, &ppte)) == 0) {
         return -E_INVAL;
+    }
 
-    if ((pp = page_lookup(env_srcenvid->env_pml4e, srcva, &ppte)) == 0)
-        return -E_INVAL;
-    if ((perm & PTE_W) && !(*ppte & PTE_W))
-        return -E_INVAL;
+    // check that the requested permissions are valid (some combination of read, write, and exec)
+    if ((perm & __EPTE_FULL) == 0)
+		return -E_INVAL;
 
+    // if perm requests write permission but we don't have write access to the page,
+    // return an error
+	if ((perm & __EPTE_WRITE) && ((*ppte) & PTE_W) == 0)
+		return -E_INVAL;
 
-    if((int64_t)guest_pa >= env_guest->env_vmxinfo.phys_sz)
-        return -E_INVAL;
+    // increment the page ref count. we'll undo this later if the mapping fails
+    pp->pp_ref += 1;
+    ret = ept_map_hva2gpa(guest_env->env_pml4e, page2kva(pp), guest_pa, perm, 0);
+    if (ret < 0) {
+        pp->pp_ref -= 1;
+        return ret;
+    }
 
-	void* addr = page2kva(pp);
-
-    if((r = ept_map_hva2gpa(env_guest->env_pml4e, addr, guest_pa, perm,0) < 0))
-        return r;
-
-	pp->pp_ref +=1;
     return 0;
 }
 
