@@ -255,11 +255,12 @@ handle_vmcall(struct Trapframe *tf, struct VmxGuestInfo *gInfo, uint64_t *eptrt)
 {
 	bool handled = false;
 	multiboot_info_t mbinfo;
-	int perm, r;
+	int r;
+    unsigned perm;
 	void *gpa_pg, *hva_pg;
 	envid_t to_env;
 	uint32_t val;
-	struct Env *filesystem;
+    uint64_t env_type;
 	int i;
 	// phys address of the multiboot map in the guest.
 	uint64_t multiboot_map_addr = 0x6000;
@@ -367,21 +368,25 @@ handle_vmcall(struct Trapframe *tf, struct VmxGuestInfo *gInfo, uint64_t *eptrt)
 		//  this to a host virtual address for the IPC to work properly.
         //  Then you should call sys_ipc_try_send()
 		/* Your code here */
-		to_env = tf->tf_regs.reg_rbx;
+        // should load the values from the trapframe registers:
+        env_type = tf->tf_regs.reg_rbx;
 		val = tf->tf_regs.reg_rcx;
+        gpa_pg = (void*)tf->tf_regs.reg_rdx;
 		perm = tf->tf_regs.reg_rsi;
-		gpa_pg = (void*)tf->tf_regs.reg_rdx;
-		if (to_env == VMX_HOST_FS_ENV && curenv->env_type == ENV_TYPE_GUEST) {
+
+		if (env_type == VMX_HOST_FS_ENV) {
 			for (i = 0; i < NENV; i++) {
 				if (envs[i].env_type == ENV_TYPE_FS) {
-					filesystem = &envs[i];
 					to_env = envs[i].env_id;
 					break;
 				}
 			}
-		}
+		} else {
+            return E_INVAL;
+        }
 		ept_gpa2hva(eptrt, gpa_pg, &hva_pg);
-		syscall(SYS_ipc_try_send, to_env, val, (uint64_t)hva_pg, perm, 0);
+
+        tf->tf_regs.reg_rax = syscall(SYS_ipc_try_send, to_env, val, (uint64_t)hva_pg, perm, 0);
 		handled = true;
 		break;
 

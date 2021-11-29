@@ -326,21 +326,34 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
     /* Your code here */
 
     if(curenv->env_type == ENV_TYPE_GUEST && e->env_ipc_dstva < (void*) UTOP) {
-		assert(srcva >= (void*)KERNBASE);
-		pp = pa2page(PADDR(srcva));
-		r = page_insert(e->env_pml4e, pp, e->env_ipc_dstva, perm);
-		if (r < 0) {
+        // guest is sending a message to the host and it should insert a page in the host's page table.
+        if(PGOFF(srcva))
+            return -E_INVAL;
+        pp = pa2page(PADDR(srcva));
+//        pp = page_lookup(curenv->env_pml4e, srcva, NULL);  // TODO
+//        PTE_ADDR()
+		if ((r = page_insert(e->env_pml4e, pp, e->env_ipc_dstva, perm)) < 0) {
 			return r;
 		}
 		e->env_ipc_perm = perm;
 	} else if(e->env_type == ENV_TYPE_GUEST && srcva < (void*) UTOP) {
+        // host is sending a message to the guest and it should insert a page in the EPT.
 		pp = page_lookup(curenv->env_pml4e, srcva, &ppte);
-		if(pp == 0 || (perm & PTE_W) && !(*ppte &PTE_W)) {
+		if(pp == 0) {
+            cprintf("[%08x] page_lookup %08x failed in sys_ipc_try_send\n", curenv->env_id, srcva);
 			return -E_INVAL;
 		}
 
+        if ((perm & PTE_W) && !(*ppte &PTE_W)) {
+            cprintf("[%08x] bad perm %x in sys_ipc_try_send\n", curenv->env_id, perm);
+            return -E_INVAL;
+        }
+
 #ifndef VMM_GUEST
-		r = ept_page_insert(e->env_pml4e, pp, e->env_ipc_dstva, __EPTE_FULL);
+        if ((r = ept_page_insert(e->env_pml4e, pp, e->env_ipc_dstva, __EPTE_FULL)) < 0) {
+            cprintf("[%08x] page_insert %08x failed in sys_ipc_try_send (%e)\n", curenv->env_id, srcva, r);
+            return r;
+        }
 #endif
     
 	} else if (srcva < (void*) UTOP && e->env_ipc_dstva < (void*) UTOP) {
