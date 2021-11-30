@@ -329,8 +329,8 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
         // guest is sending a message to the host and it should insert a page in the host's page table.
         if(PGOFF(srcva))
             return -E_INVAL;
-//        pp = pa2page(PADDR(srcva));
-        pp = page_lookup(curenv->env_pml4e, srcva, NULL);  // TODO
+       pp = pa2page(PADDR(srcva));
+        // pp = page_lookup(curenv->env_pml4e, srcva, NULL);  // TODO
 		if ((r = page_insert(e->env_pml4e, pp, e->env_ipc_dstva, perm)) < 0) {
 			return r;
 		}
