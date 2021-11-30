@@ -166,18 +166,22 @@ void free_guest_mem(epte_t* eptrt) {
 //
 int ept_page_insert(epte_t* eptrt, struct PageInfo* pp, void* gpa, int perm) {
     /* Your code here */
-		epte_t *epte;
-		assert(gpa != NULL);
-		int r = ept_lookup_gpa(eptrt, gpa, 1, &epte);
-		if (epte == NULL) return -E_NO_MEM;
-		if (r < 0) return r;
-		if (*epte & PTE_P) {
-			page_remove((pml4e_t*)eptrt, gpa);
-		}
+    epte_t *epte_out;
+    int r;
 
-		pp->pp_ref++;
+    if((r = ept_lookup_gpa(eptrt, gpa, 1, &epte_out) < 0))
+        return r;
+    if (!epte_out) {  // Check pattern match from ept_lookup_gpa
+        return -E_INVAL;
+    }
+    // First check if page already exists:
+    if(epte_present(*epte_out)) {
+        uintptr_t a = epte_addr(*epte_out);
+        pa2page(a)->pp_ref--;
+    }
+    *epte_out = epte_addr(page2pa(pp)) | perm;
 
-		*epte = page2pa(pp) | PTE_P | perm;
+    pp->pp_ref++;
     return 0;
 }
 
